@@ -1,3 +1,14 @@
+How to clone:
+1. Copy command 'git clone https://github.com/KXWong007/FYP-WebApp.git' (without quotation marks)
+2. Use Command Prompt or Terminal in VS Code, change folder directory to an empty folder.
+3. Paste and run in terminal.
+
+Refresh Database:
+1. Open XAMPP control panel -> Start MySQL -> Launch localhost/phpmyadmin in preferred browser -> Select database -> Select Operation on top navigation bar -> Drop database
+2. In terminal, copy, paste, run: 'php artisan migrate', then 'php artisan migrate:refresh --seed', then 'php storage: link'.
+
+===============================================================================================================================================================================================================================================================================
+
 <p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
 
 <p align="center">
