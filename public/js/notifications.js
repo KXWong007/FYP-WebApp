@@ -7,10 +7,24 @@ jQuery(document).ready(function ($) {
             url: '/api/new-reservations',
             method: 'GET',
             success: function(response) {
+                console.log('Fetched reservations:', response); // Debug log
                 if (response.success && response.data.length > 0) {
-                    updateNotificationBadge(response.data.length);
-                    updateNotificationDropdown(response.data);
+                    // Filter only customer reservations with 'confirm' status
+                    const customerReservations = response.data.filter(res => 
+                        res.reservedBy === 'customer' && 
+                        res.rstatus === 'confirm'
+                    );
+                    
+                    console.log('Filtered reservations:', customerReservations); // Debug log
+                    
+                    if (customerReservations.length > 0) {
+                        updateNotificationBadge(customerReservations.length);
+                        updateNotificationDropdown(customerReservations);
+                    }
                 }
+            },
+            error: function(xhr, status, error) {
+                console.error('Error fetching reservations:', error); // Debug log
             }
         });
     }
@@ -41,7 +55,7 @@ jQuery(document).ready(function ($) {
                         <div>
                             <strong>${reservation.customer_name}</strong>
                             <div class="small text-muted">
-                                ${reservation.pax} pax - ${reservation.area}
+                                ${reservation.pax} pax - ${reservation.area === 'W' ? 'Rajah Room' : 'Hornbill Restaurant'}
                             </div>
                             <div class="small text-muted">
                                 Reserved for: ${new Date(reservation.rdate).toLocaleString()}

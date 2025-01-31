@@ -20,6 +20,7 @@ return new class extends Migration
             $table->integer ('pax');
             $table->string('eventType', 100)->nullable();
             $table->string('rarea', 35)->nullable();
+            $table->string('tableNum', 35)->nullable();
             $table->string('remark', 100)->nullable();
             $table->string('reservedBy', 35);
             $table->string('rstatus', 35);

@@ -243,14 +243,16 @@
 
                         <div class="single-row">
                             <div class="mb-3 single-column">
-                                <label for="pax">Number of Guests</label>
-                                <input type="number" 
-                                       id="pax" 
-                                       name="pax" 
-                                       class="form-control" 
-                                       min="1" 
-                                       required 
-                                       oninput="this.value = this.value <= 0 ? 1 : this.value">
+                                <label for="pax">Number of Guests</label><span class="ms-2" id="table-availability-status"></span>
+                                <div class="input-group">
+                                    <input type="number" 
+                                           id="pax" 
+                                           name="pax" 
+                                           class="form-control" 
+                                           min="0" 
+                                           required 
+                                           oninput="this.value = this.value <= 0 ? 0 : this.value">
+                                </div>
                             </div>
 
                             <div class="mb-3 single-column">
@@ -259,7 +261,9 @@
                                        id="reservation_date" 
                                        name="reservation_date" 
                                        class="form-control" 
+                                       min="<?php echo date('Y-m-d\TH:i'); ?>" 
                                        required>
+                                <small class="text-muted">Operating hours: 8:30 AM - 9:00 PM</small>
                             </div>
                         </div>
 
@@ -274,6 +278,8 @@
                                 <input type="text" id="remark" name="remark" class="form-control">
                             </div>
                         </div>
+
+                        <input type="hidden" id="rstatus" name="rstatus" value="confirm">
                     </div>
 
                     <div class="modal-footer">
@@ -328,7 +334,7 @@
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="editReservationModalLabel">Edit Reservation</h5>
+                <h5 class="modal-title" id="editReservationModalLabel">Edit Reservation</h5><span class="ms-2" id="edit-table-status"></span>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
@@ -375,12 +381,19 @@
                     <div class="single-row">
                         <div class="mb-3 single-column">
                             <label for="edit_pax">Number of Guests</label>
-                        <input type="number" id="edit_pax" name="pax" class="form-control" min="1" required>
+                            <span class="ms-2" id="edit-table-availability"></span>
+                            <input type="number" id="edit_pax" name="pax" class="form-control" min="1" required>
                         </div>
 
                         <div class="mb-3 single-column">
                             <label for="edit_reservation_date">Reservation Date</label>
-                            <input type="datetime-local" id="edit_reservation_date" name="reservation_date" class="form-control" required>
+                            <input type="datetime-local" 
+                                   id="edit_reservation_date" 
+                                   name="reservation_date" 
+                                   class="form-control" 
+                                   min="" 
+                                   required>
+                            <small class="text-muted">Operating hours: 8:30 AM - 9:00 PM</small>
                         </div>
                     </div>
 
@@ -401,10 +414,7 @@
                             <label for="edit_status">Status</label>
                             <select class="form-control" id="edit_status" name="rstatus" required>
                                 <option value="confirm">Confirm</option>
-                                <option value="pending">Pending</option>
-                                <option value="thirdc">Third Confirmation</option>
-                                <option value="secondc">Second Confirmation</option>
-                                <option value="firstc">First Confirmation</option>
+                                <option value="waitinglist">Waiting List</option>
                                 <option value="cancel">Cancel</option>
                                 <option value="completed">Completed</option>
                             </select>

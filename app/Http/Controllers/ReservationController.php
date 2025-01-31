@@ -69,8 +69,8 @@ class ReservationController extends Controller
         return response()->json([
             'exists' => $exists,
             'message' => $exists 
-                ? '<span style="color:green">Customer ID exists.</span>'
-                : '<span style="color:red">None record.</span>'
+                ? '<span style="color:green"> Customer ID exists.</span>'
+                : '<span style="color:red"> None record.</span>'
         ]);
     }
 
@@ -116,18 +116,33 @@ class ReservationController extends Controller
         // Check if it's a customer reservation
         if ($request->is('api/*')) {
             try {
-                // Get customer details with logging
-                $customer = DB::table('customers')
-                    ->where('customerId', $request->customerId)
-                    ->first();
+                // Get area name based on rarea code
+                $areaMap = [
+                    'C' => 'Hornbill Restaurant',
+                    'W' => 'Rajah Room'
+                ];
+                $areaName = $areaMap[$request->rarea] ?? null;
                 
-                \Log::info('Customer details:', [
-                    'customerId' => $request->customerId,
-                    'email' => $customer ? $customer->email : 'not found',
-                    'name' => $customer ? $customer->name : 'not found'
-                ]);
-            
-                // Create reservation - ensure rstatus is 'firstc'
+                // Find available table
+                $availableTable = DB::table('tables')
+                    ->where('capacity', '>=', $request->pax)
+                    ->where('capacity', '<=', $request->pax + 1)
+                    ->where('status', 'Available')
+                    ->where('area', $areaName)
+                    ->whereNotExists(function ($query) use ($request) {
+                        $query->select(DB::raw(1))
+                            ->from('reservations')
+                            ->whereColumn('tables.tableNum', 'reservations.tableNum')
+                            ->where('reservationDate', '>=', $request->reservationDate)
+                            ->where('reservationDate', '<=', Carbon::parse($request->reservationDate)->addHours(2))
+                            ->where('rstatus', 'confirm');
+                    })
+                    ->first();
+
+                // Set status and tableNum based on availability
+                $status = $availableTable ? 'confirm' : 'waitinglist';
+                $tableNum = $availableTable ? $availableTable->tableNum : null;
+
                 $reservation = [
                     'reservationId' => $request->reservationId,
                     'customerId' => $request->customerId,
@@ -135,47 +150,24 @@ class ReservationController extends Controller
                     'reservationDate' => $request->reservationDate,
                     'rarea' => $request->rarea,
                     'reservedBy' => 'customer',
-                    'rstatus' => 'firstc',  // Make sure this is always 'firstc'
+                    'rstatus' => $status,
+                    'tableNum' => $tableNum,
                     'created_at' => now(),
                 ];
             
                 DB::table('reservations')->insert($reservation);
 
-                // Send confirmation email with error handling
-                if ($customer && $customer->email) {
-                    try {
-                        Mail::send('emails.confirmation_firstc', [
-                            'reservation' => (object)[
-                                'reservationId' => $request->reservationId,
-                                'customer_name' => $customer->name,
-                                'pax' => $request->pax,
-                                'reservationDate' => $request->reservationDate,
-                                'rarea' => $request->rarea
-                            ]
-                        ], function($message) use ($customer) {
-                            $message->to($customer->email)
-                                ->subject('New Reservation Confirmation Required');
-                            
-                            \Log::info('Sending email to customer:', [
-                                'email' => $customer->email,
-                                'name' => $customer->name
-                            ]);
-                        });
-                    } catch (\Exception $e) {
-                        \Log::error('Email sending failed', [
-                            'error' => $e->getMessage(),
-                            'customer_email' => $customer->email
-                        ]);
-                    }
-                } else {
-                    \Log::error('Customer email not found', [
-                        'customerId' => $request->customerId
-                    ]);
+                // If table was found, update its status
+                if ($availableTable) {
+                    DB::table('tables')
+                        ->where('tableNum', $tableNum)
+                        ->update(['status' => 'Reserved']);
                 }
 
                 return response()->json([
                     'success' => true,
-                    'message' => 'Reservation created successfully'
+                    'message' => 'Reservation created successfully',
+                    'status' => $status
                 ], 201);
 
             } catch (\Exception $e) {
@@ -207,6 +199,35 @@ class ReservationController extends Controller
                     'rstatus' => 'required'
                 ]);
 
+                // Check table availability and get specific table
+                $areaMap = [
+                    'C' => 'Hornbill Restaurant',
+                    'W' => 'Rajah Room'
+                ];
+                
+                $areaName = $areaMap[$validated['rarea']] ?? null;
+                $reservationDate = Carbon::parse($validated['reservation_date']);
+
+                // Find an available table
+                $availableTable = DB::table('tables')
+                    ->where('capacity', '>=', $validated['pax'])
+                    ->where('capacity', '<=', $validated['pax'] + 1)
+                    ->where('status', 'Available')
+                    ->where('area', $areaName)
+                    ->whereNotExists(function ($query) use ($reservationDate) {
+                        $query->select(DB::raw(1))
+                            ->from('reservations')
+                            ->whereColumn('tables.tableNum', 'reservations.tableNum')
+                            ->where('reservationDate', '>=', $reservationDate)
+                            ->where('reservationDate', '<=', $reservationDate->copy()->addHours(2))
+                            ->where('rstatus', 'confirm');
+                    })
+                    ->first();
+
+                // Set status and tableNum based on availability
+                $status = $availableTable ? 'confirm' : 'waitinglist';
+                $tableNum = $availableTable ? $availableTable->tableNum : null;
+
                 // Create the reservation
                 DB::table('reservations')->insert([
                     'reservationId' => $validated['reservationId'],
@@ -219,13 +240,22 @@ class ReservationController extends Controller
                     'remark' => $validated['remark'],
                     'rarea' => $validated['rarea'],
                     'reservedBy' => $validated['reservedBy'],
-                    'rstatus' => $validated['rstatus'],
+                    'rstatus' => $status,
+                    'tableNum' => $tableNum,
                     'created_at' => now()
                 ]);
 
+                // If table was found, update its status
+                if ($availableTable) {
+                    DB::table('tables')
+                        ->where('tableNum', $tableNum)
+                        ->update(['status' => 'Reserved']);
+                }
+
                 return response()->json([
                     'success' => true,
-                    'message' => 'Reservation created successfully'
+                    'message' => 'Reservation created successfully',
+                    'status' => $status
                 ], 201);
 
             } catch (\Exception $e) {
@@ -250,6 +280,56 @@ class ReservationController extends Controller
                 'rstatus' => 'required'
             ]);
 
+            // Get the reservation and its current status before update
+            $reservation = DB::table('reservations')
+                ->where('reservationId', $id)
+                ->first();
+
+            $oldStatus = $reservation->rstatus;
+            $oldTableNum = $reservation->tableNum;
+
+            // Check if new table is needed based on pax change
+            if ($request->pax != $reservation->pax) {
+                $areaMap = [
+                    'C' => 'Hornbill Restaurant',
+                    'W' => 'Rajah Room'
+                ];
+                
+                $areaName = $areaMap[$reservation->rarea] ?? null;
+                
+                // Find new suitable table
+                $availableTable = DB::table('tables')
+                    ->where('capacity', '>=', $request->pax)
+                    ->where('capacity', '<=', $request->pax + 1)
+                    ->where('status', 'Available')
+                    ->where('area', $areaName)
+                    ->first();
+
+                // Update old table status if exists
+                if ($oldTableNum) {
+                    DB::table('tables')
+                        ->where('tableNum', $oldTableNum)
+                        ->update(['status' => 'Available']);
+                }
+
+                // Update reservation with new table or set to waiting list
+                if ($availableTable) {
+                    $validated['tableNum'] = $availableTable->tableNum;
+                    $validated['rstatus'] = 'confirm';
+                    // Update new table status
+                    DB::table('tables')
+                        ->where('tableNum', $availableTable->tableNum)
+                        ->update(['status' => 'Reserved']);
+                } else {
+                    $validated['tableNum'] = null; // Explicitly set tableNum to null
+                    $validated['rstatus'] = 'waitinglist';
+                }
+            } else {
+                // If pax hasn't changed, keep the existing tableNum
+                $validated['tableNum'] = $oldTableNum;
+            }
+
+            // Update the reservation
             DB::table('reservations')
                 ->where('reservationId', $id)
                 ->update([
@@ -260,8 +340,20 @@ class ReservationController extends Controller
                     'eventType' => $validated['event'],
                     'remark' => $validated['remark'],
                     'rstatus' => $validated['rstatus'],
+                    'tableNum' => $validated['tableNum'], // Use the validated tableNum
                     'updated_at' => now()
                 ]);
+
+            // If status changed to completed or cancelled and there's a table assigned
+            if (($validated['rstatus'] === 'completed' || $validated['rstatus'] === 'cancel') && $oldTableNum) {
+                // Update table status to Available
+                DB::table('tables')
+                    ->where('tableNum', $oldTableNum)
+                    ->update(['status' => 'Available']);
+
+                // Process waiting list after table becomes available
+                $this->processWaitingList();
+            }
 
             return response()->json([
                 'success' => true,
@@ -341,9 +433,34 @@ class ReservationController extends Controller
     public function destroy($id)
     {
         try {
+            // Get the reservation details before deletion to check for assigned table
+            $reservation = DB::table('reservations')
+                ->where('reservationId', $id)
+                ->first();
+
+            if (!$reservation) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Reservation not found'
+                ], 404);
+            }
+
+            // If there's an assigned table, update its status to Available
+            if ($reservation->tableNum) {
+                DB::table('tables')
+                    ->where('tableNum', $reservation->tableNum)
+                    ->update(['status' => 'Available']);
+            }
+
+            // Delete the reservation
             DB::table('reservations')
                 ->where('reservationId', $id)
                 ->delete();
+
+            // Process waiting list after table becomes available
+            if ($reservation->tableNum) {
+                $this->processWaitingList();
+            }
 
             return response()->json([
                 'success' => true,
@@ -558,7 +675,7 @@ class ReservationController extends Controller
             $newReservations = DB::table('reservations')
                 ->join('customers', 'reservations.customerId', '=', 'customers.customerId')
                 ->where('reservations.reservedBy', 'customer')
-                ->whereIn('reservations.rstatus', ['firstc', 'secondc', 'thirdc'])
+                ->whereIn('reservations.rstatus', ['confirm'])
                 ->select(
                     'reservations.reservationId',
                     'customers.name as customer_name',
@@ -589,6 +706,7 @@ class ReservationController extends Controller
         }
     }
 
+
     public function markNotificationRead($reservationId)
     {
         try {
@@ -607,129 +725,359 @@ class ReservationController extends Controller
         }
     }
 
-    // Add method for customer confirmation
-    public function confirmReservation($reservationId)
+    public function updateReservation(Request $request, $reservationId)
     {
         try {
-            // Update the reservation status to 'confirm' and update timestamps
-            DB::table('reservations')
-                ->where('reservationId', $reservationId)
-                ->update([
-                    'rstatus' => 'confirm',
-                    'confirmed_at' => now(), // Add confirmed timestamp
-                    'status_updated_at' => now(), // Add status update timestamp
-                    'updated_at' => now()
-                ]);
-
-            // Log the confirmation
-            Log::info('Reservation confirmed:', [
-                'reservationId' => $reservationId,
-                'confirmed_at' => now()
-            ]);
-
-            return view('reservations.confirmation-success', [
-                'reservationId' => $reservationId
-            ]);
-
-        } catch (\Exception $e) {
-            Log::error('Reservation confirmation failed:', [
-                'reservationId' => $reservationId,
-                'error' => $e->getMessage()
-            ]);
-
-            return view('reservations.confirmation-error', [
-                'message' => 'Failed to confirm reservation'
-            ]);
-        }
-    }
-
-    private function scheduleReminders($reservationId, $reservationDate)
-    {
-        $reservationDateTime = Carbon::parse($reservationDate);
-        $now = Carbon::now();
-
-        // Get reservation and customer details
-        $reservation = DB::table('reservations')
-            ->join('customers', 'reservations.customerId', '=', 'customers.customerId')
-            ->where('reservations.reservationId', $reservationId)
-            ->select('reservations.*', 'customers.email', 'customers.name')
-            ->first();
-
-        // Schedule reminders with one day intervals
-        // First reminder is already sent at creation with 'firstc' status
-
-        // Second reminder after one day
-        dispatch(function() use ($reservation) {
-            if ($this->isUnconfirmed($reservation->reservationId)) {
-                $this->sendReminderEmail($reservation, 'secondc');
+            $reservation = Reservation::where('reservationId', $reservationId)->first();
+            
+            if (!$reservation) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Reservation not found'
+                ], 404);
             }
-        })->delay(now()->addDay());
 
-        // Third reminder after two days
-        dispatch(function() use ($reservation) {
-            if ($this->isUnconfirmed($reservation->reservationId)) {
-                $this->sendReminderEmail($reservation, 'thirdc');
-                $this->notifyAdmin($reservation);
+            // Store the old status and tableNum before update
+            $oldStatus = $reservation->rstatus;
+            $tableNum = $reservation->tableNum;
+
+            // Update reservation
+            $reservation->update($request->all());
+
+            // If status changed to 'completed' or 'cancel', update table status to available
+            if (($oldStatus !== 'completed' && $reservation->rstatus === 'completed') || 
+                ($oldStatus !== 'cancel' && $reservation->rstatus === 'cancel')) {
+                if ($tableNum) {
+                    DB::table('tables')
+                        ->where('tableNum', $tableNum)
+                        ->update(['status' => 'Available']);
+                    
+                    // Process waiting list after table becomes available
+                    $this->processWaitingList();
+                }
             }
-        })->delay(now()->addDays(2));
-    }
 
-    private function sendReminderEmail($reservation, $status)
-    {
-        try {
-            // Update status first
-            DB::table('reservations')
-                ->where('reservationId', $reservation->reservationId)
-                ->update(['rstatus' => $status]);
-
-            Mail::send('emails.confirmation_' . $status, [
-                'reservation' => $reservation
-            ], function($message) use ($reservation) {
-                $message->to($reservation->email)
-                    ->subject('Reservation Confirmation Required');
-            });
-
-            Log::info('Reminder email sent', [
-                'reservationId' => $reservation->reservationId,
-                'status' => $status,
-                'sentAt' => now()
+            return response()->json([
+                'success' => true,
+                'message' => 'Reservation updated successfully'
             ]);
         } catch (\Exception $e) {
-            Log::error('Failed to send reminder email', [
-                'error' => $e->getMessage(),
-                'reservationId' => $reservation->reservationId
-            ]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Error updating reservation: ' . $e->getMessage()
+            ], 500);
         }
-    }
-
-    private function isUnconfirmed($reservationId)
-    {
-        return DB::table('reservations')
-            ->where('reservationId', $reservationId)
-            ->whereIn('rstatus', ['firstc', 'secondc'])
-            ->exists();
     }
 
     public function cancelReservation($reservationId)
-{
-    try {
-        DB::table('reservations')
-            ->where('reservationId', $reservationId)
-            ->update([
+    {
+        try {
+            $reservation = Reservation::where('reservationId', $reservationId)->first();
+            
+            if (!$reservation) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Reservation not found'
+                ], 404);
+            }
+
+            // Get the tableNum before updating status
+            $tableNum = $reservation->tableNum;
+
+            // Update reservation status and clear tableNum
+            $reservation->update([
                 'rstatus' => 'cancel',
                 'updated_at' => now()
             ]);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Reservation cancelled successfully'
-        ]);
-    } catch (\Exception $e) {
-        return response()->json([
-            'success' => false,
-            'message' => 'Failed to cancel reservation: ' . $e->getMessage()
-        ], 500);
+            // If there was a table assigned, update its status to available
+            if ($tableNum) {
+                DB::table('tables')
+                    ->where('tableNum', $tableNum)
+                    ->update(['status' => 'Available']);
+            }
+
+            // Process waiting list after cancellation
+            $this->processWaitingList();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Reservation cancelled successfully'
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to cancel reservation: ' . $e->getMessage()
+            ], 500);
+        }
     }
-}
+
+    public function completeReservation($reservationId)
+    {
+        try {
+            $reservation = Reservation::where('reservationId', $reservationId)->first();
+            
+            if (!$reservation) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Reservation not found'
+                ], 404);
+            }
+
+            // Get the tableNum before updating status
+            $tableNum = $reservation->tableNum;
+
+            // Update reservation status and clear tableNum
+            $reservation->update([
+                'rstatus' => 'completed',
+                'updated_at' => now()
+            ]);
+
+            // If there was a table assigned, update its status to available
+            if ($tableNum) {
+                DB::table('tables')
+                    ->where('tableNum', $tableNum)
+                    ->update(['status' => 'Available']);
+                
+                // Process waiting list after table becomes available
+                $this->processWaitingList();
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Reservation marked as completed successfully'
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to complete reservation: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function getAvailableTables()
+    {
+        try {
+            // Get total number of tables
+            $totalTables = DB::table('tables')
+                ->where('status', 'Available')
+                ->count();
+
+            // Get number of reserved tables for current time
+            $reservedTables = DB::table('reservations')
+                ->where('reservationDate', '>=', now())
+                ->where('reservationDate', '<=', now()->addHours(2)) // Consider reservations in next 2 hours
+                ->where('rstatus', 'confirm')
+                ->count();
+
+            $availableTables = $totalTables - $reservedTables;
+            $availableTables = max(0, $availableTables); // Ensure we don't return negative numbers
+
+            return response()->json([
+                'success' => true,
+                'count' => $availableTables
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error getting available tables: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function checkTableAvailability(Request $request)
+    {
+        try {
+            $pax = $request->input('pax');
+            $reservationDate = Carbon::parse($request->input('reservation_date'));
+            $areaCode = $request->input('rarea');
+            
+            // Map area codes to full names
+            $areaMap = [
+                'C' => 'Hornbill Restaurant',
+                'W' => 'Rajah Room'
+            ];
+            
+            $areaName = $areaMap[$areaCode] ?? null;
+            
+            if (!$areaName) {
+                throw new \Exception('Invalid area code');
+            }
+
+            // Get total number of tables that can accommodate the group
+            $availableTables = DB::table('tables')
+                ->where('capacity', '>=', $pax)
+                ->where('capacity', '<=', $pax + 1)
+                ->where('status', 'Available')
+                ->where('area', $areaName)
+                ->count();
+
+            // Get number of existing reservations for this time slot
+            $existingReservations = DB::table('reservations')
+                ->where('reservationDate', '>=', $reservationDate)
+                ->where('reservationDate', '<=', $reservationDate->copy()->addHours(2))
+                ->where('rstatus', 'confirm')
+                ->where('rarea', $areaCode)
+                ->count();
+
+            // Calculate if tables are available
+            $tablesAvailable = ($availableTables - $existingReservations) > 0;
+
+            return response()->json([
+                'available' => $tablesAvailable,
+                'message' => $tablesAvailable ? 'Tables available' : 'Waiting list'
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error checking table availability: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function processWaitingList()
+    {
+        try {
+            \Log::info('Starting to process waiting list');
+            
+            // Get all waiting list reservations ordered by creation date
+            $waitingList = Reservation::where('rstatus', 'waitinglist')
+                ->orderBy('created_at')
+                ->get();
+
+            \Log::info('Found waiting list reservations:', ['count' => $waitingList->count()]);
+
+            foreach ($waitingList as $reservation) {
+                $areaMap = [
+                    'C' => 'Hornbill Restaurant',
+                    'W' => 'Rajah Room'
+                ];
+                
+                $areaName = $areaMap[$reservation->rarea] ?? null;
+                
+                \Log::info('Processing reservation:', [
+                    'reservationId' => $reservation->reservationId,
+                    'pax' => $reservation->pax,
+                    'area' => $areaName
+                ]);
+
+                // Check if there's an available table for this reservation
+                $availableTable = DB::table('tables')
+                    ->where('capacity', '>=', $reservation->pax)
+                    ->where('capacity', '<=', $reservation->pax + 1)
+                    ->where('status', 'Available')
+                    ->where('area', $areaName)  // Added area check
+                    ->whereNotExists(function ($query) use ($reservation) {
+                        $query->select(DB::raw(1))
+                            ->from('reservations')
+                            ->whereColumn('tables.tableNum', 'reservations.tableNum')
+                            ->where('reservationDate', '>=', $reservation->reservationDate)
+                            ->where('reservationDate', '<=', Carbon::parse($reservation->reservationDate)->addHours(2))
+                            ->where('rstatus', 'confirm');
+                    })
+                    ->first();
+
+                \Log::info('Available table check result:', ['table' => $availableTable]);
+
+                if ($availableTable) {
+                    // Update reservation status to confirm
+                    $reservation->update([
+                        'rstatus' => 'confirm',
+                        'tableNum' => $availableTable->tableNum
+                    ]);
+
+                    // Update table status to Reserved
+                    DB::table('tables')
+                        ->where('tableNum', $availableTable->tableNum)
+                        ->update(['status' => 'Reserved']);
+
+                    \Log::info('Updated reservation and table:', [
+                        'reservationId' => $reservation->reservationId,
+                        'tableNum' => $availableTable->tableNum,
+                        'newStatus' => 'Reserved'
+                    ]);
+                }
+            }
+
+            return response()->json(['success' => true]);
+        } catch (\Exception $e) {
+            \Log::error('Error processing waiting list: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error processing waiting list: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function checkEditTableAvailability(Request $request)
+    {
+        try {
+            $pax = $request->input('pax');
+            $reservationDate = Carbon::parse($request->input('reservation_date'));
+            $currentTable = $request->input('current_table');
+            $reservationId = $request->input('reservation_id');
+            
+            // Get the area code from the current reservation
+            $reservation = DB::table('reservations')
+                ->where('reservationId', $reservationId)
+                ->first();
+                
+            $areaCode = $reservation->rarea;
+            
+            \Log::info('Checking table availability:', [
+                'pax' => $pax,
+                'area' => $areaCode,
+                'date' => $reservationDate,
+                'currentTable' => $currentTable,
+                'reservationId' => $reservationId
+            ]);
+
+            // Find suitable table
+            $availableTable = DB::table('tables')
+                ->where('capacity', '>=', $pax)
+                ->where('capacity', '<=', $pax + 1)
+                ->where('status', 'Available') // Only check for Available tables
+                ->where('area', $areaCode === 'C' ? 'Hornbill Restaurant' : 'Rajah Room')
+                ->whereNotExists(function ($query) use ($reservationDate, $reservationId) {
+                    $query->select(DB::raw(1))
+                        ->from('reservations')
+                        ->whereColumn('tables.tableNum', 'reservations.tableNum')
+                        ->where('reservationId', '!=', $reservationId)
+                        ->where('reservationDate', '>=', $reservationDate)
+                        ->where('reservationDate', '<=', $reservationDate->copy()->addHours(2))
+                        ->whereIn('rstatus', ['confirm', 'pending']);
+                })
+                ->orderBy('capacity') // Get the smallest suitable table first
+                ->first();
+
+            \Log::info('Available table found:', [
+                'table' => $availableTable
+            ]);
+
+            if ($availableTable) {
+                return response()->json([
+                    'available' => true,
+                    'message' => 'Table available',
+                    'newTableNum' => $availableTable->tableNum,
+                    'currentStatus' => 'Available'  // Add status information
+                ]);
+            } else {
+                return response()->json([
+                    'available' => false,
+                    'message' => 'Waiting list',
+                    'currentStatus' => 'Not Available'
+                ]);
+            }
+        } catch (\Exception $e) {
+            \Log::error('Error in checkEditTableAvailability:', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Error checking table availability: ' . $e->getMessage()
+            ], 500);
+        }
+    }
 
 }

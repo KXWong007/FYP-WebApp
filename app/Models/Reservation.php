@@ -23,6 +23,7 @@ class Reservation extends Model
         'eventType', // Used by admin
         'rarea',
         'remark', // Used by admin
+        'tableNum',
         'reserveBy',
         'rstatus'
     ];

@@ -13,6 +13,17 @@ class Kernel extends ConsoleKernel
     protected function schedule(Schedule $schedule): void
     {
         $schedule->command('reservations:update-status')->hourly();
+        
+        $schedule->call(function () {
+            // Only run if not already processing
+            if (Cache::lock('processing_waiting_list', 60)->get()) {
+                try {
+                    app(ReservationController::class)->processWaitingList();
+                } finally {
+                    Cache::lock('processing_waiting_list')->release();
+                }
+            }
+        })->everyFiveMinutes();
     }
 
     /**

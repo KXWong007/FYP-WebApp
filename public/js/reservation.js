@@ -65,6 +65,7 @@ jQuery(document).ready(function ($) {
     });
 
     $("#addReservationBtn").on("click", function () {
+        updateAvailableTableCount();
         const myModal = new bootstrap.Modal(
             document.getElementById("addReservationModal")
         );
@@ -97,6 +98,8 @@ jQuery(document).ready(function ($) {
     $("#customerId").on("keyup", function () {
         getCustomerDetail(this.value);
     });
+
+    $("#pax").on("change", checkTableAvailability);
 
     function checkUsername() {
         $.ajax({
@@ -231,23 +234,120 @@ jQuery(document).ready(function ($) {
         $("#reservationId").val(reservationId);
     }
 
-    // Add this to prevent form submission if no area is selected
-    $("#addreservation").on("submit", function (e) {
+    // Function to check if time is within operating hours
+    function isWithinOperatingHours(date) {
+        const hours = date.getHours();
+        const minutes = date.getMinutes();
+        const timeInMinutes = hours * 60 + minutes;
+        
+        const openingTime = 8 * 60 + 30;  // 8:30 AM in minutes
+        const closingTime = 21 * 60;      // 9:00 PM in minutes
+        
+        return timeInMinutes >= openingTime && timeInMinutes <= closingTime;
+    }
+
+    // Update setMinDateTime function
+    function setMinDateTime() {
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, "0");
+        const day = String(now.getDate()).padStart(2, "0");
+        
+        // Set to current time if within operating hours, otherwise set to next day opening time
+        let hours, minutes;
+        if (isWithinOperatingHours(now)) {
+            hours = String(now.getHours()).padStart(2, "0");
+            minutes = String(now.getMinutes()).padStart(2, "0");
+        } else {
+            // If current time is after closing, set to next day opening time
+            if (now.getHours() >= 21) {
+                now.setDate(now.getDate() + 1);
+                hours = "08";
+                minutes = "30";
+            } else {
+                // If before opening time, set to today's opening time
+                hours = "08";
+                minutes = "30";
+            }
+        }
+
+        const minDateTime = `${year}-${month}-${day}T${hours}:${minutes}`;
+        $("#reservation_date, #edit_reservation_date").attr("min", minDateTime);
+    }
+
+    // Update validation for both add and edit forms
+    $("#reservation_date, #edit_reservation_date").on("change", function() {
+        const selectedDate = new Date($(this).val());
+        const now = new Date();
+
+        if (selectedDate < now) {
+            alert("Please select a future date and time.");
+            $(this).val("");
+            return;
+        }
+
+        if (!isWithinOperatingHours(selectedDate)) {
+            alert("Please select a time between 8:30 AM and 9:00 PM.");
+            $(this).val("");
+            return;
+        }
+    });
+
+    // Add this function to check table availability
+    function checkTableAvailability() {
+        const pax = $('#pax').val();
+        const reservationDate = $('#reservation_date').val();
+        const rarea = $('#rarea').val();
+        
+        if (!pax || !reservationDate || !rarea) return;
+
+        $.ajax({
+            url: '/check-table-availability',
+            method: 'GET',
+            data: {
+                pax: pax,
+                reservation_date: reservationDate,
+                rarea: rarea
+            },
+            success: function(response) {
+                const statusSpan = $('#table-availability-status');
+                if (response.available) {
+                    statusSpan.html(`<span style="color:green">${response.message}</span>`);
+                    $('#rstatus').val('confirm');
+                } else {
+                    statusSpan.html(`<span style="color:red">${response.message}</span>`);
+                    $('#rstatus').val('waitinglist');
+                }
+            },
+            error: function(xhr, status, error) {
+                console.error('Error checking table availability:', error);
+                $('#table-availability-status').html('<span style="color:red">Error checking availability</span>');
+            }
+        });
+    }
+
+    // Add these event listeners
+    $('#pax').on('change', checkTableAvailability);
+    $('#reservation_date').on('change', checkTableAvailability);
+    $('#rarea').on('change', checkTableAvailability); // Add listener for area change
+
+    // Modify your existing form submission handler to include the status
+    $('#addreservation').on('submit', function(e) {
         e.preventDefault();
+
+        const reservationDate = new Date($("#reservation_date").val());
+        
+        // Validate reservation date and time
+        if (!isWithinOperatingHours(reservationDate)) {
+            $("#warning-message").text("Please select a time between 8:30 AM and 9:00 PM");
+            $("#warning-alert").fadeIn().delay(3000).fadeOut();
+            return false;
+        }
 
         // Validate pax
         const pax = parseInt($("#pax").val());
         if (isNaN(pax) || pax < 1) {
             $("#warning-message").text("Number of guests must be at least 1");
-            $("#warning-alert").fadeIn().delay(3000).fadeOut();
-            return false;
-        }
-
-        // Validate reservation date
-        const reservationDate = new Date($("#reservation_date").val());
-        const now = new Date();
-        if (reservationDate < now) {
-            $("#warning-message").text("Please select a future date and time");
             $("#warning-alert").fadeIn().delay(3000).fadeOut();
             return false;
         }
@@ -263,7 +363,7 @@ jQuery(document).ready(function ($) {
             remark: $("#remark").val() || null,
             rarea: $("#rarea").val(),
             reservedBy: "admin",
-            rstatus: "confirm",
+            rstatus: $('#rstatus').val(),
             _token: $('meta[name="csrf-token"]').attr("content"),
         };
 
@@ -298,46 +398,60 @@ jQuery(document).ready(function ($) {
         });
     });
 
-    // Set minimum date for reservation
-    function setMinDateTime() {
-        const now = new Date();
-        const year = now.getFullYear();
-        const month = String(now.getMonth() + 1).padStart(2, "0");
-        const day = String(now.getDate()).padStart(2, "0");
-        const hours = String(now.getHours()).padStart(2, "0");
-        const minutes = String(now.getMinutes()).padStart(2, "0");
+    $("#editReservationForm").on("submit", function(e) {
+        e.preventDefault();
 
-        const minDateTime = `${year}-${month}-${day}T${hours}:${minutes}`;
-        $("#reservation_date").attr("min", minDateTime);
-
-        // If current value is before minimum, reset it
-        if ($("#reservation_date").val() < minDateTime) {
-            $("#reservation_date").val(minDateTime);
+        const reservationDate = new Date($("#edit_reservation_date").val());
+        
+        // Validate reservation date and time
+        if (!isWithinOperatingHours(reservationDate)) {
+            $("#warning-message").text("Please select a time between 8:30 AM and 9:00 PM");
+            $("#warning-alert").fadeIn().delay(3000).fadeOut();
+            return false;
         }
-    }
 
-    // Set initial minimum date/time
-    setMinDateTime();
+        const formData = {
+            reservationId: $("#edit_reservationId").val(),
+            customerId: $("#edit_customerId").val(),
+            orderId: $("#edit_orderId").val(),
+            paymentId: $("#edit_paymentId").val(),
+            pax: $("#edit_pax").val(),
+            reservation_date: $("#edit_reservation_date").val(),
+            event: $("#edit_event").val(),
+            remark: $("#edit_remark").val(),
+            rarea: $("#edit_rarea").val(),
+            rstatus: $("#edit_status").val(),
+            _token: $('meta[name="csrf-token"]').attr("content"),
+        };
 
-    // Update minimum date/time every minute
-    setInterval(setMinDateTime, 60000);
+        $.ajax({
+            url: `/reservations/update/${formData.reservationId}`,
+            method: "POST",
+            data: formData,
+            success: function (response) {
+                if (response.success) {
+                    $("#success-message").text(
+                        "Reservation updated successfully!"
+                    );
+                    $("#success-alert").fadeIn().delay(3000).fadeOut();
+                    $("#editReservationModal").modal("hide");
+                    $("#reservations-table").DataTable().ajax.reload();
+                }
+            },
+            error: function () {
+                $("#warning-message").text(
+                    "Error updating reservation. Please try again."
+                );
+                $("#warning-alert").fadeIn().delay(3000).fadeOut();
+            },
+        });
+    });
 
     // Validate pax input
     $("#pax").on("input", function () {
         let value = parseInt($(this).val());
         if (isNaN(value) || value < 1) {
             $(this).val(1);
-        }
-    });
-
-    // Validate reservation date
-    $("#reservation_date").on("change", function () {
-        const selectedDate = new Date($(this).val());
-        const now = new Date();
-
-        if (selectedDate < now) {
-            alert("Please select a future date and time.");
-            $(this).val("");
         }
     });
 
@@ -393,6 +507,27 @@ jQuery(document).ready(function ($) {
                         formatDateForInput(reservation.reservationDate)
                     );
 
+                    // Update the table status span
+                    const tableStatusSpan = $('#edit-table-status');
+                    if (reservation.tableNum) {
+                        tableStatusSpan.html(`<span style="color:green">Table: ${reservation.tableNum}</span>`);
+                    } else {
+                        tableStatusSpan.html(`<span style="color:red">No table assigned</span>`);
+                    }
+
+                    // Display current assigned table
+                    const assignedTableSpan = $('#edit-assigned-table');
+                    if (reservation.tableNum) {
+                        assignedTableSpan.html(`<span style="color:green">Assigned Table: ${reservation.tableNum}</span>`);
+                    } else {
+                        assignedTableSpan.html(`<span style="color:red">No table assigned</span>`);
+                    }
+
+                    // Add event listener for pax changes
+                    $('#edit_pax').on('change', function() {
+                        checkEditTableAvailability(reservation);
+                    });
+
                     // Show the modal
                     $("#editReservationModal").modal("show");
                 }
@@ -406,46 +541,41 @@ jQuery(document).ready(function ($) {
         });
     });
 
-    // Handle form submission
-    $("#editReservationForm").on("submit", function (e) {
-        e.preventDefault();
-
-        const formData = {
-            reservationId: $("#edit_reservationId").val(),
-            customerId: $("#edit_customerId").val(),
-            orderId: $("#edit_orderId").val(),
-            paymentId: $("#edit_paymentId").val(),
-            pax: $("#edit_pax").val(),
-            reservation_date: $("#edit_reservation_date").val(),
-            event: $("#edit_event").val(),
-            remark: $("#edit_remark").val(),
-            rarea: $("#edit_rarea").val(),
-            rstatus: $("#edit_status").val(),
-            _token: $('meta[name="csrf-token"]').attr("content"),
-        };
+    function checkEditTableAvailability(currentReservation) {
+        const pax = $('#edit_pax').val();
+        const reservationDate = $('#edit_reservation_date').val();
+        const rarea = $('#edit_rarea').val();
+        
+        if (!pax || !reservationDate || !rarea) return;
 
         $.ajax({
-            url: `/reservations/update/${formData.reservationId}`,
-            method: "POST",
-            data: formData,
-            success: function (response) {
-                if (response.success) {
-                    $("#success-message").text(
-                        "Reservation updated successfully!"
-                    );
-                    $("#success-alert").fadeIn().delay(3000).fadeOut();
-                    $("#editReservationModal").modal("hide");
-                    $("#reservations-table").DataTable().ajax.reload();
+            url: '/check-edit-table-availability',
+            method: 'GET',
+            data: {
+                pax: pax,
+                reservation_date: reservationDate,
+                rarea: rarea,
+                current_table: currentReservation.tableNum,
+                reservation_id: currentReservation.reservationId
+            },
+            success: function(response) {
+                const tableStatusSpan = $('#edit-table-status');
+                const availabilitySpan = $('#edit-table-availability');
+                
+                if (response.available) {
+                    availabilitySpan.html(`<span style="color:green">${response.message}</span>`);
+                    tableStatusSpan.html(`<span style="color:green">Table: ${response.newTableNum}</span>`);
+                } else {
+                    availabilitySpan.html(`<span style="color:red">${response.message}</span>`);
+                    tableStatusSpan.html(`<span style="color:red">No table assigned</span>`);
                 }
             },
-            error: function () {
-                $("#warning-message").text(
-                    "Error updating reservation. Please try again."
-                );
-                $("#warning-alert").fadeIn().delay(3000).fadeOut();
-            },
+            error: function(xhr, status, error) {
+                console.error('Error checking table availability:', error);
+                $('#edit-table-availability').html('<span style="color:red">Error checking availability</span>');
+            }
         });
-    });
+    }
 
     // Helper function to format date for datetime-local input
     function formatDateForInput(dateString) {
@@ -458,16 +588,6 @@ jQuery(document).ready(function ($) {
 
         return `${year}-${month}-${day}T${hours}:${minutes}`;
     }
-
-    $("#edit_reservation_date").on("change", function () {
-        const selectedDate = new Date($(this).val());
-        const now = new Date();
-
-        if (selectedDate < now) {
-            alert("Please select a future date and time.");
-            $(this).val("");
-        }
-    });
 
     // Export button click handler
     $("#export-btn").on("click", function () {
@@ -617,5 +737,90 @@ jQuery(document).ready(function ($) {
                 $("#warning-alert").fadeIn().delay(3000).fadeOut();
             },
         });
+    });
+
+    // Add this function to get available tables
+    function updateAvailableTableCount() {
+        $.ajax({
+            url: '/get-available-tables',
+            method: 'GET',
+            success: function(response) {
+                $('#availableTableCount').text(response.count);
+                
+                // Update badge color based on availability
+                const badge = $('#availableTableStatus');
+                if (response.count === 0) {
+                    badge.removeClass('bg-success').addClass('bg-danger');
+                } else {
+                    badge.removeClass('bg-danger').addClass('bg-success');
+                }
+            },
+            error: function(xhr, status, error) {
+                console.error('Error fetching available tables:', error);
+                $('#availableTableCount').text('N/A');
+            }
+        });
+    }
+
+    // Set min date-time to current date-time
+    function updateMinDateTime() {
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const day = String(now.getDate()).padStart(2, '0');
+        const hours = String(now.getHours()).padStart(2, '0');
+        const minutes = String(now.getMinutes()).padStart(2, '0');
+        
+        const minDateTime = `${year}-${month}-${day}T${hours}:${minutes}`;
+        $('#reservation_date').attr('min', minDateTime);
+    }
+
+    // Update min date-time when opening the modal
+    $('#addReservationBtn').on('click', updateMinDateTime);
+
+    // Validate operating hours when date changes
+    $('#reservation_date').on('change', function() {
+        const selectedDate = new Date(this.value);
+        const hours = selectedDate.getHours();
+        const minutes = selectedDate.getMinutes();
+        const time = hours + minutes/60;
+
+        // Check if time is within operating hours (8:30 AM - 9:00 PM)
+        if (time < 8.5 || time > 21) {
+            alert('Please select a time between 8:30 AM and 9:00 PM');
+            this.value = ''; // Clear invalid selection
+        }
+    });
+
+    // Prevent default form submission and handle it via AJAX
+    $('#addreservation').on('submit', function(e) {
+        e.preventDefault(); // This is crucial - prevents default form submission
+        
+        // Your existing AJAX call for form submission
+        $.ajax({
+            url: '/reservations/store',
+            method: 'POST',
+            data: $(this).serialize(),
+            headers: {
+                'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+            },
+            success: function(response) {
+                if (response.success) {
+                    $('#addReservationModal').modal('hide');
+                    $('#reservationForm')[0].reset();
+                    $('#reservations-table').DataTable().ajax.reload();
+                    toastr.success('Reservation created successfully');
+                }
+            },
+            error: function(xhr, status, error) {
+                toastr.error('Error creating reservation: ' + error);
+            }
+        });
+    });
+
+    // Reset form when modal is closed
+    $('#addReservationModal').on('hidden.bs.modal', function() {
+        $('#reservationForm')[0].reset();
+        $('#table-availability-status').empty();
     });
 });

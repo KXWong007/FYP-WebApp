@@ -104,15 +104,14 @@ class TablesController extends Controller
         try {
             // Validate incoming data
             $validated = $request->validate([
-                'capacity' => 'required|integer|min:1',  // Ensure capacity is a positive integer
-                'area' => 'required|string|max:255',     // Area should be a string
-                'status' => 'required|string|in:available,occupied',  // Assuming status is either 'available' or 'occupied'
+                'capacity' => 'required|integer|min:1',
+                'area' => 'required|string|max:255',
+                'status' => 'required|string|in:available,occupied,reserved',
             ]);
 
-            // Find the table by tableNum using the correct model
-            $table = Tables::where('tableNum', $tableNum)->first();  // Use Tables model here
+            // Find the table by tableNum
+            $table = Tables::where('tableNum', $tableNum)->first();
 
-            // If the table is not found
             if (!$table) {
                 return response()->json(['success' => false, 'message' => 'Table not found.'], 404);
             }
@@ -121,14 +120,15 @@ class TablesController extends Controller
             $table->capacity = $validated['capacity'];
             $table->area = $validated['area'];
             $table->status = $validated['status'];
-
-            // Save the updated table
             $table->save();
 
-            // Return a success response
+            // If table becomes available, process waiting list
+            if ($validated['status'] === 'available') {
+                app(ReservationController::class)->processWaitingList();
+            }
+
             return response()->json(['success' => true, 'message' => 'Table updated successfully']);
         } catch (\Exception $e) {
-            // Return a generic error message for unexpected exceptions
             return response()->json(['success' => false, 'message' => 'Error updating table: ' . $e->getMessage()], 500);
         }
     }
@@ -190,21 +190,5 @@ class TablesController extends Controller
    public function showQRCode($tableNum)
     {
         return $qrCode = QrCode::size(200)->generate('Table Number: ' . $tableNum);
-    }
-
-    public function validateTableNumber(Request $request, $tableNum)
-    {
-        try {
-            // Check if the table number exists in the database
-            $table = Tables::where('tableNum', $tableNum)->first();
-
-            if ($table) {
-                return response()->json(['exists' => true], 200); // Table exists
-            } else {
-                return response()->json(['exists' => false], 404); // Table does not exist
-            }
-        } catch (\Exception $e) {
-            return response()->json(['error' => 'Failed to validate table number', 'details' => $e->getMessage()], 500); 
-        }
     }
 }

@@ -148,22 +148,6 @@ Route::get('/reservations/template', [ReservationController::class, 'template'])
 Route::post('/reservations/import', [ReservationController::class, 'import'])->name('reservations.import');
 Route::post('/check-customerstatus', [ReservationController::class, 'checkCustomerStatus'])->name('check.customer.status');
 
-Route::get('/test-email', function () {
-    try {
-        Mail::raw('Test email from Laravel', function($message) {
-            $message->to('test@example.com')
-                   ->subject('Test Email');
-        });
-        
-        return 'Email sent successfully!';
-    } catch (\Exception $e) {
-        return 'Email error: ' . $e->getMessage();
-    }
-});
-
-Route::get('/confirm-reservation/{reservationId}', [ReservationController::class, 'confirmReservation'])
-    ->name('reservation.confirm');
-
 // Add this route for notifications
 Route::get('/api/new-reservations', [ReservationController::class, 'getNewReservations'])
     ->name('reservations.new');
@@ -245,5 +229,12 @@ Route::post('/forecast/store/{inventoryId}', [ForecastingController::class, 'sto
 Route::put('/forecast/update/{id}', [ForecastingController::class, 'update'])->name('forecast.update');
 
 Route::get('/api/low-stock-items', [ForecastingController::class, 'getLowStockItems']);
+
+Route::get('/get-available-tables', [ReservationController::class, 'getAvailableTables']);
+
+Route::get('/check-table-availability', [ReservationController::class, 'checkTableAvailability']);
+Route::post('/process-waiting-list', [ReservationController::class, 'processWaitingList']);
+
+Route::get('/check-edit-table-availability', [ReservationController::class, 'checkEditTableAvailability']);
 
 
