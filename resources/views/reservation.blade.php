@@ -128,10 +128,6 @@
         <button type="button" class="btn btn-custom btn-success" id="addReservationBtn" target="#addReservationModal">
             <i class="fas fa-plus"></i> Add Reservation
         </button>
-        <button type="button" class="btn btn-custom btn-primary" id="import-btn">
-            <i class="fas fa-file-import"></i> Import Data
-        </button>
-
         
             <div class="dropdown d-inline-block">
                 <button class="btn btn-custom btn-danger dropdown-toggle" type="button" id="exportDropdown" data-bs-toggle="dropdown" aria-expanded="false">
@@ -428,37 +424,6 @@
 
                     <div class="modal-footer">
                         <button type="submit" class="btn btn-dark" id="updateButton">Update</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Import Modal -->
-<div class="modal fade" id="importModal" tabindex="-1" aria-labelledby="importModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="importModalLabel">Import Reservations</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <!-- Download template button -->
-                <div class="mb-3">
-                    <a href="{{ route('reservations.template') }}" class="btn btn-dark">
-                        <i class="fas fa-download"></i> Download CSV Template
-                    </a>
-                </div>
-                
-                <form id="importForm" enctype="multipart/form-data">
-                    @csrf
-                    <div class="mb-3">
-                        <label for="csvFile" class="form-label">Choose CSV File</label>
-                        <input type="file" class="form-control" id="csvFile" name="csvFile" accept=".csv" required>
-                    </div>
-                    <div class="modal-footer">
-                        <button type="submit" class="btn btn-custom btn-primary">Import</button>
                     </div>
                 </form>
             </div>

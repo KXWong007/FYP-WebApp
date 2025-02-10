@@ -132,7 +132,7 @@ Route::get('/reservations', [ReservationController::class, 'index'])->name('rese
 Route::post('/reservations/store', [ReservationController::class, 'store'])->name('reservations.store');
 Route::post('/reservations/update/{id}', [ReservationController::class, 'update'])->name('reservations.update');
 
-// Add these new routes
+// Reservation Routes
 Route::post('/check-customer', [ReservationController::class, 'checkCustomer']);
 Route::get('/get-customer-detail', [ReservationController::class, 'getCustomerDetail']);
 
@@ -145,7 +145,6 @@ Route::get('/reservations/export/{type?}', [ReservationController::class, 'expor
 Route::delete('/reservations/{id}', [ReservationController::class, 'destroy'])->name('reservations.destroy');
 
 Route::get('/reservations/template', [ReservationController::class, 'template'])->name('reservations.template');
-Route::post('/reservations/import', [ReservationController::class, 'import'])->name('reservations.import');
 Route::post('/check-customerstatus', [ReservationController::class, 'checkCustomerStatus'])->name('check.customer.status');
 
 // Add this route for notifications

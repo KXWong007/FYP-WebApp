@@ -397,8 +397,13 @@ class ReservationController extends Controller
 
     public function export($type = 'xlsx') 
     {
+        // Get start and end of current week
+        $startOfWeek = now()->startOfWeek();
+        $endOfWeek = now()->endOfWeek();
+
         $reservations = DB::table('reservations')
             ->join('customers', 'reservations.customerId', '=', 'customers.customerId')
+            ->whereBetween('reservations.reservationDate', [$startOfWeek, $endOfWeek])
             ->select(
                 'reservations.reservationId as Reservation ID',
                 'reservations.customerId as Customer ID',
@@ -413,20 +418,29 @@ class ReservationController extends Controller
                     WHEN reservations.rarea = 'C' THEN 'Hornbill Restaurant'
                     ELSE reservations.rarea 
                 END as Area"),
+                'reservations.tableNum as Table Number',
+                'reservations.rstatus as Status',
                 'reservations.remark as Remark'
             )
+            ->orderBy('reservations.reservationDate', 'asc')
             ->get();
 
         switch($type) {
             case 'csv':
-                return (new FastExcel($reservations))->download('reservations.csv');
+                return (new FastExcel($reservations))
+                    ->download('reservations_' . now()->format('Y-m-d') . '.csv');
                 
             case 'pdf':
-                $pdf = PDF::loadView('exports.reservations-pdf', ['reservations' => $reservations]);
-                return $pdf->download('reservations.pdf');
+                $pdf = PDF::loadView('exports.reservations-pdf', [
+                    'reservations' => $reservations,
+                    'startDate' => $startOfWeek->format('Y-m-d'),
+                    'endDate' => $endOfWeek->format('Y-m-d')
+                ]);
+                return $pdf->download('reservations_' . now()->format('Y-m-d') . '.pdf');
                 
             default: // xlsx
-                return (new FastExcel($reservations))->download('reservations.xlsx');
+                return (new FastExcel($reservations))
+                    ->download('reservations_' . now()->format('Y-m-d') . '.xlsx');
         }
     }
 
@@ -475,139 +489,6 @@ class ReservationController extends Controller
         }
     }
 
-    public function template()
-    {
-        $headers = [
-            'Customer ID',
-            'Number of Guests',
-            'Reservation Date (YYYY-MM-DD HH:mm)',
-            'Event',
-            'Area (W/C)',
-            'Status (C/P)',  // Added status field
-            'Remark'
-        ];
-
-        $f = fopen('php://memory', 'r+');
-        fputcsv($f, $headers);
-        
-        rewind($f);
-        $content = stream_get_contents($f);
-        fclose($f);
-
-        return response($content)
-            ->header('Content-Type', 'text/csv')
-            ->header('Content-Disposition', 'attachment; filename="reservation_template.csv"');
-    }
-
-    public function import(Request $request)
-    {
-        try {
-            if (!$request->hasFile('csvFile')) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'No file uploaded'
-                ], 400);
-            }
-
-            $file = $request->file('csvFile');
-            $rows = array_map('str_getcsv', file($file->getPathname()));
-            $header = array_shift($rows);
-
-            $successCount = 0;
-            $errorRows = [];
-
-            foreach ($rows as $index => $row) {
-                try {
-                    // Validate customer ID
-                    $customer = DB::table('customers')
-                        ->where('customerId', $row[0])
-                        ->first();
-
-                    if (!$customer) {
-                        $errorRows[] = "Row " . ($index + 2) . ": Customer ID not found";
-                        continue;
-                    }
-
-                    // Validate area
-                    $area = strtoupper($row[4]);
-                    if (!in_array($area, ['W', 'C'])) {
-                        $errorRows[] = "Row " . ($index + 2) . ": Invalid area (must be W or C)";
-                        continue;
-                    }
-
-                    // Validate status
-                    $status = strtoupper($row[5]);
-                    if (!in_array($status, ['C', 'P'])) {
-                        $errorRows[] = "Row " . ($index + 2) . ": Invalid status (must be C or P)";
-                        continue;
-                    }
-
-                    // Convert status
-                    $fullStatus = ($status === 'C') ? 'confirm' : 'pending';
-
-                    // Convert date format
-                    try {
-                        $date = \DateTime::createFromFormat('d/m/Y H:i', $row[2]);
-                        if (!$date) {
-                            throw new \Exception("Invalid date format");
-                        }
-                        $formattedDate = $date->format('Y-m-d H:i:s');
-                    } catch (\Exception $e) {
-                        $errorRows[] = "Row " . ($index + 2) . ": Invalid date format. Use DD/MM/YYYY HH:MM format";
-                        continue;
-                    }
-
-                    // Generate reservation ID
-                    $lastId = DB::table('reservations')
-                        ->where('reservationId', 'like', $area . '%')
-                        ->orderBy('reservationId', 'desc')
-                        ->value('reservationId');
-
-                    $newId = $area . date('Ymd') . sprintf("%03d", 1);
-                    if ($lastId) {
-                        $sequence = intval(substr($lastId, -3)) + 1;
-                        $newId = $area . date('Ymd') . sprintf("%03d", $sequence);
-                    }
-
-                    // Insert reservation
-                    DB::table('reservations')->insert([
-                        'reservationId' => $newId,
-                        'customerId' => $row[0],
-                        'pax' => $row[1],
-                        'reservationDate' => $formattedDate,  // Use converted date
-                        'eventType' => $row[3],
-                        'rarea' => $area,
-                        'rstatus' => $fullStatus,
-                        'remark' => $row[6] ?? null,
-                        'reservedBy' => 'admin through CSV',
-                        'created_at' => now()
-                    ]);
-
-                    $successCount++;
-
-                } catch (\Exception $e) {
-                    $errorRows[] = "Row " . ($index + 2) . ": " . $e->getMessage();
-                }
-
-            }
-
-            $message = "$successCount reservations imported successfully.";
-            if (count($errorRows) > 0) {
-                $message .= " Errors: " . implode(", ", $errorRows);
-            }
-
-            return response()->json([
-                'success' => true,
-                'message' => $message
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error importing data: ' . $e->getMessage()
-            ], 500);
-        }
-    }
 
     public function getUserReservations($userId)
     {

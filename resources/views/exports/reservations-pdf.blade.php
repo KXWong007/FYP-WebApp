@@ -12,6 +12,7 @@
             border: 1px solid #ddd;
             padding: 8px;
             text-align: left;
+            font-size: 12px;
         }
         th {
             background-color: #f2f2f2;
@@ -20,10 +21,18 @@
             text-align: center;
             margin-bottom: 20px;
         }
+        .date-range {
+            text-align: center;
+            margin-bottom: 20px;
+            color: #666;
+        }
     </style>
 </head>
 <body>
-    <h2>Reservations Report</h2>
+    <h2>Reservations List</h2>
+    <div class="date-range">
+        Week of {{ \Carbon\Carbon::parse($startDate)->format('d M Y') }} - {{ \Carbon\Carbon::parse($endDate)->format('d M Y') }}
+    </div>
     <table>
         <thead>
             <tr>
@@ -34,6 +43,8 @@
                 <th>Date</th>
                 <th>Event</th>
                 <th>Area</th>
+                <th>Table</th>
+                <th>Status</th>
             </tr>
         </thead>
         <tbody>
@@ -46,6 +57,8 @@
                     <td>{{ $reservation->{'Reservation Date'} }}</td>
                     <td>{{ $reservation->Event }}</td>
                     <td>{{ $reservation->Area }}</td>
+                    <td>{{ $reservation->{'Table Number'} }}</td>
+                    <td>{{ $reservation->Status }}</td>
                 </tr>
             @endforeach
         </tbody>

@@ -10,8 +10,13 @@ class ReservationsExport implements FromCollection, WithHeadings
 {
     public function collection()
     {
+        // Get start and end of current week
+        $startOfWeek = now()->startOfWeek();
+        $endOfWeek = now()->endOfWeek();
+
         return DB::table('reservations')
             ->join('customers', 'reservations.customerId', '=', 'customers.customerId')
+            ->whereBetween('reservations.reservationDate', [$startOfWeek, $endOfWeek])
             ->select(
                 'reservations.reservationId',
                 'reservations.customerId',
@@ -20,10 +25,16 @@ class ReservationsExport implements FromCollection, WithHeadings
                 'reservations.reservationDate',
                 'reservations.eventType',
                 'reservations.orderId',
-                'reservations.paymentId',
-                'reservations.rarea',
+                DB::raw("CASE 
+                    WHEN reservations.rarea = 'W' THEN 'Rajah Room'
+                    WHEN reservations.rarea = 'C' THEN 'Hornbill Restaurant'
+                    ELSE reservations.rarea 
+                END as rarea"),
+                'reservations.tableNum',
+                'reservations.rstatus',
                 'reservations.remark'
             )
+            ->orderBy('reservations.reservationDate', 'asc')
             ->get();
     }
 
@@ -37,8 +48,9 @@ class ReservationsExport implements FromCollection, WithHeadings
             'Reservation Date',
             'Event',
             'Order ID',
-            'Payment ID',
             'Area',
+            'Table Number',
+            'Status',
             'Remark'
         ];
     }
