@@ -2,6 +2,7 @@ How to clone:
 1. Copy command 'git clone https://github.com/KXWong007/FYP-WebApp.git' (without quotation marks)
 2. Use Command Prompt or Terminal in VS Code, change folder directory to an empty folder.
 3. Paste and run in terminal.
+4. After cloning the repo, paste and run this command 'composer install' which creates and downloads all the dependencies into the vendor folder.
 
 Refresh Database:
 1. Open XAMPP control panel -> Start MySQL -> Launch localhost/phpmyadmin in preferred browser -> Select database -> Select Operation on top navigation bar -> Drop database
